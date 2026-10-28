@@ -1,231 +1,75 @@
-const API_URL = "http://127.0.0.1:44944/database";
-const ROUTER_DB = "./router";
+// 素材库初始化：路由走 info_lib.router_*；表结构仍由 material_lib 负责。
 
-// ========== 1. 清理旧素材路由（防止重复插入） ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_delete" },
-    body: JSON.stringify({
-        path: ROUTER_DB,
-        sql: "DELETE FROM routers WHERE id IN (300, 301) OR parent_id IN (300, 301)",
-    }),
-});
-console.log("旧素材路由清理完成");
+const INFO_URL = "http://127.0.0.1:44944/info_lib";
 
-// ========== 2. 插入素材一级菜单（固定 ID 300） ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_insert" },
-    body: JSON.stringify({
-        path: ROUTER_DB,
-        sql: `INSERT INTO routers (id, title, icon, hide, path, parent_id, level)
-              VALUES (300, '素材', 'ic-sample', 0, '/material', 0, 1)`,
-    }),
-});
-console.log("素材父路由插入成功");
+type InfoError = Error & { code?: number };
 
-// ========== 3. 插入素材列表二级菜单（parent_id = 300） ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_insert" },
-    body: JSON.stringify({
-        path: ROUTER_DB,
-        sql: `INSERT INTO routers (id, title, icon, hide, path, url, show, parent_id, level)
-              VALUES (301, '素材列表', '', 0, '/material', '/material/material.js', 1, 300, 2)`,
-    }),
-});
-console.log("素材子路由插入成功");
-
-const MATERIAL_DB = "./material";
-
-// ========== 4. 素材文件表 ==========
-await fetch(API_URL, {
+async function infoCall<T = unknown>(
+  symbol: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(INFO_URL, {
     method: "POST",
     headers: {
-        "Content-Type": "application/libary",
-        "FFI-Symbol": "db_update",
+      "Content-Type": "application/libary",
+      "FFI-Symbol": symbol,
     },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: `
-            CREATE TABLE IF NOT EXISTS material_file (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT NOT NULL UNIQUE,
-                project_uid TEXT,
-                organ_uid TEXT,
-                flow_uid TEXT,
-                type_uid TEXT,
-                name TEXT,
-                description TEXT,
-                cover TEXT,
-                create_by TEXT,
-                created_at TEXT DEFAULT (datetime('now','localtime')),
-                updated_at TEXT DEFAULT (datetime('now','localtime')),
-                deleted_at TEXT
-            )
-        `,
-    }),
-});
-console.log("material_file 表创建成功");
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.code !== 200) {
+    const error = new Error(
+      payload?.msg ?? `info_lib ${symbol} failed: ${response.status}`,
+    ) as InfoError;
+    error.code = payload?.code ?? response.status;
+    throw error;
+  }
+  return payload.data as T;
+}
 
-// ========== 5. 素材类型表（type_name 添加唯一约束） ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: {
-        "Content-Type": "application/libary",
-        "FFI-Symbol": "db_update",
-    },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: `
-            CREATE TABLE IF NOT EXISTS material_type (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT NOT NULL UNIQUE,
-                type_name TEXT UNIQUE,
-                icon TEXT,
-                created_at TEXT DEFAULT (datetime('now','localtime')),
-                updated_at TEXT DEFAULT (datetime('now','localtime')),
-                deleted_at TEXT
-            )
-        `,
-    }),
-});
-console.log("material_type 表创建成功");
+async function upsertRouter(route: Record<string, unknown>): Promise<void> {
+  try {
+    await infoCall("router_get", { id: route.id });
+  } catch (error) {
+    if ((error as InfoError).code !== 404100) throw error;
+    await infoCall("router_post", route);
+    return;
+  }
+  const { id, ...fields } = route;
+  await infoCall("router_update", { id, ...fields });
+}
 
-// ========== 6. 素材版本表 ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: {
-        "Content-Type": "application/libary",
-        "FFI-Symbol": "db_update",
-    },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: `
-            CREATE TABLE IF NOT EXISTS material_version (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT NOT NULL UNIQUE,
-                cover TEXT,
-                design_uid TEXT,
-                child_uid TEXT,
-                soft_ver TEXT,
-                name TEXT,
-                logs TEXT,
-                fuid TEXT,
-                create_by TEXT,
-                created_at TEXT DEFAULT (datetime('now','localtime')),
-                updated_at TEXT DEFAULT (datetime('now','localtime')),
-                deleted_at TEXT
-            )
-        `,
-    }),
+await upsertRouter({
+  id: 300,
+  title: "素材",
+  icon: "ic-sample",
+  hide: 0,
+  path: "/material",
+  parent_id: 0,
+  level: 1,
 });
-console.log("material_version 表创建成功");
+await upsertRouter({
+  id: 301,
+  title: "素材列表",
+  icon: "",
+  hide: 0,
+  path: "/material",
+  url: "/material/material.js",
+  show: 1,
+  parent_id: 300,
+  level: 2,
+});
+console.log("素材路由初始化完成");
 
-// ========== 7. 素材文件表索引 ==========
-// 单列索引
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_file_project_uid ON material_file(project_uid)",
-    }),
+// ---------- 初始化素材库表结构（由能力库负责） ----------
+const res = await fetch("http://127.0.0.1:44944/material_lib", {
+  method: "POST",
+  headers: { "Content-Type": "application/libary", "FFI-Symbol": "setup" },
+  body: JSON.stringify({}),
 });
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_file_organ_uid ON material_file(organ_uid)",
-    }),
-});
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_file_type_uid ON material_file(type_uid)",
-    }),
-});
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_file_deleted_at ON material_file(deleted_at)",
-    }),
-});
-
-// 复合索引（优化常见筛选组合）
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_file_type_deleted ON material_file(type_uid, deleted_at)",
-    }),
-});
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_file_project_deleted ON material_file(project_uid, deleted_at)",
-    }),
-});
-
-// ========== 8. 素材类型表索引 ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_type_uuid ON material_type(uuid)",
-    }),
-});
-
-// ========== 9. 素材版本表索引 ==========
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_version_design_uid ON material_version(design_uid)",
-    }),
-});
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_version_child_uid ON material_version(child_uid)",
-    }),
-});
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_version_fuid ON material_version(fuid)",
-    }),
-});
-// 复合索引
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_version_design_deleted ON material_version(design_uid, deleted_at)",
-    }),
-});
-await fetch(API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/libary", "FFI-Symbol": "db_update" },
-    body: JSON.stringify({
-        path: MATERIAL_DB,
-        sql: "CREATE INDEX IF NOT EXISTS idx_material_version_child_deleted ON material_version(child_uid, deleted_at)",
-    }),
-});
-
-console.log("素材库所有表及索引创建完成");
+const setup = await res.json();
+if (setup?.code !== 200) {
+  console.warn("[material_lib] setup 失败:", setup);
+} else {
+  console.log("素材库表结构初始化完成", setup.data);
+}

@@ -1,14 +1,22 @@
 {
   "name": "material",
-  "version": "1.0.1",
+  "version": "1.0.4",
   "description": "material for piksel",
-  "keywords": ["material"],
+  "keywords": [
+    "material"
+  ],
   "author": "funxdata",
   "type": "web",
+  "dependencies-sys": {
+    "material_lib": "1.0.1",
+    "info_lib": "0.1.0"
+  },
   "dependencies-web": {},
   "exports": {
     "./assets/project_app_0_0_1.js": "material.js",
     "./src/setup.ts": "setup.ts"
   },
-  "init":["./setup.ts"]
+  "init": [
+    "./setup.ts"
+  ]
 }
